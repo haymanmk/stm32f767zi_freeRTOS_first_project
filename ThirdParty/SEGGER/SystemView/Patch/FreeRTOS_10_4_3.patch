@@ -1,0 +1,162 @@
+diff -rupN org/FreeRTOS/Source/include/FreeRTOSConfig.h new/FreeRTOS/Source/include/FreeRTOSConfig.h
+--- org/FreeRTOS/Source/include/FreeRTOSConfig.h	2024-04-08 15:52:32
++++ new/FreeRTOS/Source/include/FreeRTOSConfig.h	2024-04-08 15:16:35
+@@ -103,7 +103,11 @@ to exclude the API function. */
+ #define INCLUDE_xQueueGetMutexHolder         1
+ #define INCLUDE_uxTaskGetStackHighWaterMark  1
+ #define INCLUDE_eTaskGetState                1
++#define INCLUDE_xTaskGetIdleTaskHandle       1
++#define INCLUDE_pxTaskGetStackStart          1
+ 
++#include "SEGGER_SYSVIEW_FreeRTOS.h"
++
+ /*
+  * The CMSIS-RTOS V2 FreeRTOS wrapper is dependent on the heap implementation used
+  * by the application thus the correct define need to be enabled below
+diff -rupN org/FreeRTOS/Source/include/FreeRTOS.h new/FreeRTOS/Source/include/FreeRTOS.h
+--- org/FreeRTOS/Source/include/FreeRTOS.h	2020-12-15 19:54:26.000000000 +0100
++++ new/FreeRTOS/Source/include/FreeRTOS.h	2021-03-10 14:58:58.000000000 +0100
+@@ -182,6 +182,10 @@
+     #define INCLUDE_uxTaskGetStackHighWaterMark2    0
+ #endif
+ 
++#ifndef INCLUDE_pxTaskGetStackStart
++	#define INCLUDE_pxTaskGetStackStart 0
++#endif
++
+ #ifndef INCLUDE_eTaskGetState
+     #define INCLUDE_eTaskGetState    0
+ #endif
+@@ -448,6 +452,23 @@
+     #define tracePOST_MOVED_TASK_TO_READY_STATE( pxTCB )
+ #endif
+ 
++#ifndef traceREADDED_TASK_TO_READY_STATE
++	#define traceREADDED_TASK_TO_READY_STATE( pxTCB )	traceMOVED_TASK_TO_READY_STATE( pxTCB )
++#endif
++
++#ifndef traceMOVED_TASK_TO_DELAYED_LIST
++	#define traceMOVED_TASK_TO_DELAYED_LIST()
++#endif
++
++#ifndef traceMOVED_TASK_TO_OVERFLOW_DELAYED_LIST
++	#define traceMOVED_TASK_TO_OVERFLOW_DELAYED_LIST()
++#endif
++
++#ifndef traceMOVED_TASK_TO_SUSPENDED_LIST
++	#define traceMOVED_TASK_TO_SUSPENDED_LIST( pxTCB )
++#endif
++
++
+ #ifndef traceQUEUE_CREATE
+     #define traceQUEUE_CREATE( pxNewQueue )
+ #endif
+@@ -696,6 +717,18 @@
+     #define traceTASK_NOTIFY_GIVE_FROM_ISR( uxIndexToNotify )
+ #endif
+ 
++#ifndef traceISR_EXIT_TO_SCHEDULER
++	#define traceISR_EXIT_TO_SCHEDULER()
++#endif
++
++#ifndef traceISR_EXIT
++	#define traceISR_EXIT()
++#endif
++
++#ifndef traceISR_ENTER
++	#define traceISR_ENTER()
++#endif
++
+ #ifndef traceSTREAM_BUFFER_CREATE_FAILED
+     #define traceSTREAM_BUFFER_CREATE_FAILED( xIsMessageBuffer )
+ #endif
+diff -rupN org/FreeRTOS/Source/tasks.c new/FreeRTOS/Source/tasks.c
+--- org/FreeRTOS/Source/tasks.c	2024-04-08 17:01:55
++++ new/FreeRTOS/Source/tasks.c	2024-04-08 17:25:14
+@@ -1703,6 +1703,7 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB
+                 mtCOVERAGE_TEST_MARKER();
+             }
+ 
++            traceMOVED_TASK_TO_SUSPENDED_LIST( pxTCB );
+             vListInsertEnd( &xSuspendedTaskList, &( pxTCB->xStateListItem ) );
+ 
+             #if ( configUSE_TASK_NOTIFICATIONS == 1 )
+@@ -3941,6 +3942,20 @@ static void prvCheckTasksWaitingTermination( void )
+ #endif /* INCLUDE_uxTaskGetStackHighWaterMark */
+ /*-----------------------------------------------------------*/
+ 
++#if (INCLUDE_pxTaskGetStackStart == 1)
++	uint8_t* pxTaskGetStackStart( TaskHandle_t xTask)
++	{
++	    TCB_t *pxTCB;
++	    UBaseType_t uxReturn;
++        (void)uxReturn;
++
++		pxTCB = prvGetTCBFromHandle( xTask );
++		return ( uint8_t * ) pxTCB->pxStack;
++	}
++
++#endif /* INCLUDE_pxTaskGetStackStart */
++/*-----------------------------------------------------------*/
++
+ #if ( INCLUDE_vTaskDelete == 1 )
+ 
+     static void prvDeleteTCB( TCB_t * pxTCB )
+@@ -5345,12 +5360,14 @@ static void prvAddCurrentTaskToDelayedList( TickType_t
+             {
+                 /* Wake time has overflowed.  Place this item in the overflow
+                  * list. */
++                traceMOVED_TASK_TO_OVERFLOW_DELAYED_LIST();
+                 vListInsert( pxOverflowDelayedTaskList, &( pxCurrentTCB->xStateListItem ) );
+             }
+             else
+             {
+                 /* The wake time has not overflowed, so the current block list
+                  * is used. */
++                traceMOVED_TASK_TO_DELAYED_LIST();
+                 vListInsert( pxDelayedTaskList, &( pxCurrentTCB->xStateListItem ) );
+ 
+                 /* If the task entering the blocked state was placed at the
+@@ -5379,11 +5396,13 @@ static void prvAddCurrentTaskToDelayedList( TickType_t
+ 
+         if( xTimeToWake < xConstTickCount )
+         {
++            traceMOVED_TASK_TO_OVERFLOW_DELAYED_LIST();
+             /* Wake time has overflowed.  Place this item in the overflow list. */
+             vListInsert( pxOverflowDelayedTaskList, &( pxCurrentTCB->xStateListItem ) );
+         }
+         else
+         {
++            traceMOVED_TASK_TO_DELAYED_LIST();
+             /* The wake time has not overflowed, so the current block list is used. */
+             vListInsert( pxDelayedTaskList, &( pxCurrentTCB->xStateListItem ) );
+ 
+diff -rupN org/FreeRTOS/Source/include/task.h new/FreeRTOS/Source/include/task.h
+--- org/FreeRTOS/Source/include/task.h	2024-04-08 17:35:39
++++ new/FreeRTOS/Source/include/task.h	2024-04-08 17:36:48
+@@ -1567,6 +1567,25 @@ configSTACK_DEPTH_TYPE uxTaskGetStackHighWaterMark2( T
+  */
+ configSTACK_DEPTH_TYPE uxTaskGetStackHighWaterMark2( TaskHandle_t xTask ) PRIVILEGED_FUNCTION;
+ 
++/**
++ * task.h
++ * <PRE>uint8_t* pxTaskGetStackStart( TaskHandle_t xTask);</PRE>
++ *
++ * INCLUDE_pxTaskGetStackStart must be set to 1 in FreeRTOSConfig.h for
++ * this function to be available.
++ *
++ * Returns the start of the stack associated with xTask.  That is,
++ * the highest stack memory address on architectures where the stack grows down
++ * from high memory, and the lowest memory address on architectures where the
++ * stack grows up from low memory.
++ *
++ * @param xTask Handle of the task associated with the stack returned.
++ * Set xTask to NULL to return the stack of the calling task.
++ *
++ * @return A pointer to the start of the stack.
++ */
++uint8_t* pxTaskGetStackStart( TaskHandle_t xTask) PRIVILEGED_FUNCTION;
++
+ /* When using trace macros it is sometimes necessary to include task.h before
+  * FreeRTOS.h.  When this is done TaskHookFunction_t will not yet have been defined,
+  * so the following two prototypes will cause a compilation error.  This can be

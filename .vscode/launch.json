@@ -1,0 +1,92 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "STlink Debug",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32f767zi_freeRTOS_first_project.elf",
+      "request": "launch",
+      "type": "cortex-debug",
+      "runToEntryPoint": "main",
+      "servertype": "stutil",
+      "device": "STM32F767ZI",
+      "interface": "swd",
+      "preLaunchTask": "Build all",
+      "svdFile": "${workspaceFolder}/STM32F767.svd",
+      "swoConfig": {}
+    },
+    {
+      "name": "STlink Attach",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32f767zi_freeRTOS_first_project.elf",
+      "request": "attach",
+      "type": "cortex-debug",
+      "runToEntryPoint": "main",
+      "servertype": "stutil",
+      "device": "STM32F767ZI",
+      "interface": "swd",
+      "preLaunchTask": "Build all",
+      "svdFile": "${workspaceFolder}/STM32F767.svd",
+      "swoConfig": {}
+    },
+    {
+      "name": "J-Link Debug",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32f767zi_freeRTOS_first_project.elf",
+      "request": "launch",
+      "type": "cortex-debug",
+      "runToEntryPoint": "main",
+      "servertype": "jlink",
+      "device": "STM32F767ZI",
+      "interface": "swd",
+      "preLaunchTask": "Build all",
+      "svdFile": "${workspaceFolder}/STM32F767.svd",
+      "swoConfig": {
+        "enabled": true,
+        "cpuFrequency": 216000000,
+        "swoFrequency": 2000000,
+        "source": "probe",
+        "decoders": [
+          {
+            "label": "ITM port 0 output",
+            "type": "console",
+            "port": 0,
+            "showOnStartup": true,
+            "encoding": "ascii"
+          }
+        ]
+      }
+    },
+    {
+      "name": "J-Link Attach",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32f767zi_freeRTOS_first_project.elf",
+      "request": "attach",
+      "type": "cortex-debug",
+      "runToEntryPoint": "main",
+      "servertype": "jlink",
+      "device": "STM32F767ZI",
+      "interface": "swd",
+      "preLaunchTask": "Build all",
+      "svdFile": "${workspaceFolder}/STM32F767.svd",
+      "swoConfig": {
+        "enabled": true,
+        "cpuFrequency": 216000000,
+        "swoFrequency": 2000000,
+        "source": "probe",
+        "decoders": [
+          {
+            "label": "ITM port 0 output",
+            "type": "console",
+            "port": 0,
+            "showOnStartup": true,
+            "encoding": "ascii"
+          }
+        ]
+      }
+    }
+  ]
+}

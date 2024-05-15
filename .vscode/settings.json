@@ -1,0 +1,28 @@
+{
+  "files.associations": {
+    "stm32f7xx_hal.h": "c",
+    "stm32f7xx_hal_conf.h": "c",
+    "__verbose_abort": "c",
+    "cstdio": "c",
+    "freertos.h": "c",
+    "portable.h": "c",
+    "deprecated_definitions.h": "c",
+    "freertosconfig.h": "c",
+    "task.h": "c",
+    "portmacro.h": "c",
+    "segger_sysview_freertos.h": "c",
+    "segger_sysview.h": "c",
+    "stm32f7xx_hal_eth.h": "c",
+    "stm32f7xx_hal_def.h": "c",
+    "main.h": "c",
+    "ethernet_if.h": "c",
+    "unistd.h": "c",
+    "ostream": "c",
+    "syscall.h": "c"
+  },
+  "cortex-debug.gdbPath": "/opt/homebrew/bin/arm-none-eabi-gdb",
+  "cortex-debug.stutilPath": "/opt/homebrew/bin/st-util",
+  "cortex-debug.variableUseNaturalFormat": false,
+  "cortex-debug.JLinkGDBServerPath": "/usr/local/bin/jlinkgdbserver",
+  "cmake.configureOnOpen": false
+}
