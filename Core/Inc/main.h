@@ -47,6 +47,8 @@ extern "C" {
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
+#define TIM_START_COUNTER(__HANDLE__) ((__HANDLE__)->Instance->CR1 |= TIM_CR1_CEN)
+#define TIM_STOP_COUNTER(__HANDLE__) ((__HANDLE__)->Instance->CR1 &= ~TIM_CR1_CEN)
 
 /* USER CODE END EM */
 

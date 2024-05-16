@@ -52,8 +52,8 @@
 // Timer Channel ID, 1, 2, 3, 4
 #define TASK_NOTIFY_TIM_CHANNEL_1 0x01
 #define TASK_NOTIFY_TIM_CHANNEL_2 0x02
-#define TASK_NOTIFY_TIM_CHANNEL_3 0x03
-#define TASK_NOTIFY_TIM_CHANNEL_4 0x04
+#define TASK_NOTIFY_TIM_CHANNEL_3 0x04
+#define TASK_NOTIFY_TIM_CHANNEL_4 0x08
 
 // Double Buffer ID, 0 or 1
 // The buffer ID is used to identify which buffer should be updated
@@ -79,9 +79,10 @@ DMA_HandleTypeDef hdma_tim5_ch4_trig;
 TaskHandle_t xHandleTask1 = NULL;
 TaskHandle_t xHandleTask2 = NULL;
 TaskHandle_t xHandleUpdatePulseData = NULL;
+TaskHandle_t xHandleMainTask = NULL;
 
 // Pulse frequency
-volatile uint32_t pulseFrequency = 200000;
+volatile uint32_t pulseFrequency = 200;
 
 // Double Buffer Space
 static doubleBufferArray_t *preparingBufferCh1 = NULL;
@@ -90,6 +91,8 @@ static doubleBufferArray_t *preparingBufferCh4 = NULL;
 static doubleBufferArray_t *preparedBufferCh4 = NULL;
 volatile doubleBufferArray_t *freeBufferCh1 = NULL;
 volatile doubleBufferArray_t *freeBufferCh4 = NULL;
+static doubleBufferArray_t doubleBuffer1;
+static doubleBufferArray_t doubleBuffer2;
 
 /* USER CODE END PV */
 
@@ -108,51 +111,73 @@ void bootloaderJumpToApp(void);
 /* USER CODE BEGIN 0 */
 void vMainTask(void *pvParameters)
 {
-  uint32_t lastPulseCountCh1 = (*preparingBufferCh1)[DOUBLE_BUFFER_SIZE - 1];
-  uint32_t lastPulseCountCh4 = (*preparingBufferCh4)[DOUBLE_BUFFER_SIZE - 1];
+  uint32_t ulNotificationValue = 0;
+  uint32_t lastCounter = 0;
 
-  // Start TIM5 Output Compare Mode at Channel 1 and Channel 4
-  TIM_OC_Start_DMA_Double_Buffer(&htim5, TIM_CHANNEL_1, (uint32_t)(*preparedBufferCh1), (uint32_t)(&htim5.Instance->CCR1), (uint32_t)(*preparingBufferCh1), DOUBLE_BUFFER_SIZE);
-  // TIM_OC_Start_DMA_Double_Buffer(&htim5, TIM_CHANNEL_4, (uint32_t)(*preparedBufferCh4), (uint32_t)(&htim5.Instance->CCR4), (uint32_t)(*preparingBufferCh4), DOUBLE_BUFFER_SIZE);
+  // Prepare double buffer
+  uint32_t pulseIncrementCh1 = COMPUTE_INCREMENT_FOR_PULSE(pulseFrequency, APB1_CLOCK);
+  preparedBufferCh1 = &doubleBuffer1;
+  updateBuffer(preparedBufferCh1, 0, 0 + pulseIncrementCh1, pulseIncrementCh1, DOUBLE_BUFFER_SIZE);
+  lastCounter = (*preparedBufferCh1)[DOUBLE_BUFFER_SIZE - 1];
 
-  preparedBufferCh1 = NULL;
-  preparingBufferCh1 = NULL;
+  // add a signature in a pulse for debugging purpose
+  (*preparedBufferCh1)[2] += 0.8 * pulseIncrementCh1;
+
+  // assign array to preparingBuffer
+  preparingBufferCh1 = &doubleBuffer2;
+
+  // start timer output compare mode with DMA
+  HAL_TIM_OC_Start_DMA(&htim5, TIM_CHANNEL_1, (uint32_t)preparedBufferCh1, DOUBLE_BUFFER_SIZE);
 
   // Reset TIM5 Counter
   __HAL_TIM_SET_COUNTER(&htim5, 0);
 
+  // xTaskNotifyWait(0, 0xFFFFFFFF, &ulNotificationValue, portMAX_DELAY);
+
   for (;;)
   {
-    // do something
-    if(freeBufferCh1 != NULL)
+    /* do something  */
+    // vLoggingPrintf("[0]Captured Value: %x\n", HAL_TIM_ReadCapturedValue(&htim5, TIM_CHANNEL_1));
+    vLoggingPrintf("[0]Timer Counter: %x\n", __HAL_TIM_GET_COUNTER(&htim5));
+    // prepare for next buffer
+    updateBuffer(preparingBufferCh1, 0, lastCounter + pulseIncrementCh1, pulseIncrementCh1, DOUBLE_BUFFER_SIZE);
+    // lastCounter = (*preparingBufferCh1)[DOUBLE_BUFFER_SIZE - 1];
+
+    // add a signature in a pulse for debugging purpose
+    (*preparingBufferCh1)[2] += 0.8 * pulseIncrementCh1;
+
+    // Wait for the notification from the interrupt
+    xTaskNotifyWait(0, 0xFFFFFFFF, &ulNotificationValue, portMAX_DELAY);
+
+    // Check the notification value
+    if (ulNotificationValue & TASK_NOTIFY_TIM_CHANNEL_1)
     {
-      freeNode(&freeBufferCh1, CH1);
-    }
-
-    if (preparingBufferCh1 == NULL)
-    {
-      getFreeNode(&preparingBufferCh1, CH1);
-
-      // check if buffer is available
-      if (preparingBufferCh1 == NULL)
-      {
-        // No buffer is available
-        // in practice, the pulse generation should be stopped
-        return;
-      }
-
-      // prepare data for buffer
-      uint32_t pulseIncrement = COMPUTE_INCREMENT_FOR_PULSE(pulseFrequency, APB1_CLOCK);
-      updateBuffer(preparingBufferCh1, 0, lastPulseCountCh1 + pulseIncrement, pulseIncrement, DOUBLE_BUFFER_SIZE);
-
-      // update last pulse count
-      lastPulseCountCh1 = (*preparingBufferCh1)[DOUBLE_BUFFER_SIZE - 1];
-    }
-
-    if (preparedBufferCh1 == NULL)
-    {
+      // swap buffer
+      doubleBufferArray_t *temp = preparedBufferCh1;
       preparedBufferCh1 = preparingBufferCh1;
-      preparingBufferCh1 = NULL;
+      preparingBufferCh1 = temp;
+
+      // record captured value
+      lastCounter = HAL_TIM_ReadCapturedValue(&htim5, TIM_CHANNEL_1);
+
+      vLoggingPrintf("[1]Timer Counter: %x\n", __HAL_TIM_GET_COUNTER(&htim5));
+      vLoggingPrintf("Captured Value (entry): %x\n", HAL_TIM_ReadCapturedValue(&htim5, TIM_CHANNEL_1));
+      // Reset TIM5 Counter
+      // __HAL_TIM_SET_COUNTER(&htim5, 0);
+
+      // set capture compare value
+      // __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_1, 0);
+      // vLoggingPrintf("Captured Value after reset: %x\n", HAL_TIM_ReadCapturedValue(&htim5, TIM_CHANNEL_1));
+
+      // start DMA
+      HAL_TIM_OC_Start_DMA(&htim5, TIM_CHANNEL_1, (uint32_t)preparedBufferCh1, DOUBLE_BUFFER_SIZE);
+
+      // Reset TIM5 Counter
+      // __HAL_TIM_SET_COUNTER(&htim5, 0);
+      // print timer counter value
+      vLoggingPrintf("Timer Counter: %x\n", __HAL_TIM_GET_COUNTER(&htim5));
+      // print captured value
+      vLoggingPrintf("Captured Value: %x\n", HAL_TIM_ReadCapturedValue(&htim5, TIM_CHANNEL_1));
     }
   }
 }
@@ -164,14 +189,14 @@ void vBootloaderTask(void *pvParameters)
     if (HAL_GPIO_ReadPin(USER_Btn_GPIO_Port, USER_Btn_Pin) == GPIO_PIN_SET)
     {
       // Bootloader mode
-      vLoggingPrintf("Bootloader mode is enabled\n");
+      // vLoggingPrintf("Bootloader mode is enabled\n");
 
       // Jump to user application
       bootloaderJumpToApp();
     }
     else
     {
-      vLoggingPrintf("Bootloader mode is disabled\n");
+      // vLoggingPrintf("Bootloader mode is disabled\n");
     }
 
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -242,28 +267,9 @@ int main(void)
   uint32_t pulseIncrementCh1 = COMPUTE_INCREMENT_FOR_PULSE(pulseFrequency, APB1_CLOCK);
   uint32_t pulseIncrementCh4 = COMPUTE_INCREMENT_FOR_PULSE(pulseFrequency, APB1_CLOCK);
 
-  // Initialize memory pool
-  initMemPool();
-
-  // get free node for double buffer
-  getFreeNode(&preparedBufferCh1, CH1);
-  getFreeNode(&preparingBufferCh1, CH1);
-  getFreeNode(&preparedBufferCh4, CH4);
-  getFreeNode(&preparingBufferCh4, CH4);
-
-  // prepare data for buffer
-  updateBuffer(preparedBufferCh1, 0, pulseIncrementCh1, pulseIncrementCh1, DOUBLE_BUFFER_SIZE);
-  updateBuffer(preparingBufferCh1, 0, (*preparedBufferCh1)[DOUBLE_BUFFER_SIZE - 1] + pulseIncrementCh1, pulseIncrementCh1, DOUBLE_BUFFER_SIZE);
-  updateBuffer(preparedBufferCh4, 0, pulseIncrementCh4, pulseIncrementCh4, DOUBLE_BUFFER_SIZE);
-  updateBuffer(preparingBufferCh4, 0, (*preparedBufferCh4)[DOUBLE_BUFFER_SIZE - 1] + pulseIncrementCh4, pulseIncrementCh4, DOUBLE_BUFFER_SIZE);
-
-  // BaseType_t xReturnedTask1, xReturnedTask2;
-
-  // xReturnedTask1 = xTaskCreate(vTask1, "Task1", STACK_SIZE, (void *)1, 1, &xHandleTask1);
-  // xReturnedTask2 = xTaskCreate(vTask2, "Task2", STACK_SIZE, (void *)2, 1, &xHandleTask2);
   // xTaskCreate(vTaskHandleUpdatePulseData, "UpdatePulseData", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, &xHandleUpdatePulseData);
   xTaskCreate(vBootloaderTask, "BootloaderTask", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
-  xTaskCreate(vMainTask, "MainTask", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
+  xTaskCreate(vMainTask, "MainTask", configMINIMAL_STACK_SIZE * 2, NULL, tskIDLE_PRIORITY, &xHandleMainTask);
 
   // configASSERT(xReturnedTask1);
   // configASSERT(xReturnedTask2);
@@ -273,7 +279,7 @@ int main(void)
   if (HAL_GPIO_ReadPin(USER_Btn_GPIO_Port, USER_Btn_Pin) == GPIO_PIN_SET)
   {
     // Bootloader mode
-    vLoggingPrintf("Bootloader mode is enabled\n");
+    // vLoggingPrintf("Bootloader mode is enabled\n");
 
     // Jump to user application
     bootloaderJumpToApp();
@@ -423,10 +429,10 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Stream1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
   /* DMA1_Stream2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
 }
 
@@ -649,6 +655,24 @@ void updateBuffer(doubleBufferArray_t *buffer, uint32_t start_index, uint32_t st
   }
 }
 
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+  {
+    // stop DMA
+    // HAL_TIM_OC_Stop_DMA(htim, TIM_CHANNEL_1);
+
+    // stop counter
+    TIM_STOP_COUNTER(htim);
+
+    // notify main task to update pulse data
+    xTaskNotifyFromISR(xHandleMainTask, TASK_NOTIFY_TIM_CHANNEL_1, eSetBits, NULL);
+
+    // debug message, print captured value
+    vLoggingPrintf("[ISR]Timer Counter: %x\n", __HAL_TIM_GET_COUNTER(htim));
+  }
+}
+
 /**
  * @brief interrupt callback as DMA M0 buffer is completely transfered.
  */
@@ -660,7 +684,7 @@ void PingPongM0TransferCompleteCallback(TIM_HandleTypeDef *htim)
   // current memory buffer in used is memory 1
   if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
   {
-    //free node
+    // free node
     freeBufferCh1 = htim->hdma[TIM_DMA_ID_CC1]->Instance->M0AR;
 
     if (preparedBufferCh1 == NULL)
