@@ -168,7 +168,7 @@ static uint16_t usUsedStackSize = 0;
 
 void vStartSimpleTCPServerTasks(uint16_t usStackSize, UBaseType_t uxPriority)
 {
-    xTaskCreate(prvCreateTCPServerSocketTasks, "TCPServerListener", usStackSize, NULL, uxPriority + 1, NULL);
+    xTaskCreate(prvCreateTCPServerSocketTasks, "TCPServerListener", usStackSize, NULL, uxPriority, NULL);
 
     /* Remember the requested stack size so it can be re-used by the server
      * listening task when it creates tasks to handle connections. */

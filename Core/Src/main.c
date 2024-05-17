@@ -82,7 +82,7 @@ TaskHandle_t xHandleUpdatePulseData = NULL;
 TaskHandle_t xHandleMainTask = NULL;
 
 // Pulse frequency
-volatile uint32_t pulseFrequency = 200;
+volatile uint32_t pulseFrequency = 100000; // Hz
 
 // Double Buffer Space
 static doubleBufferArray_t *preparingBufferCh1 = NULL;
@@ -93,6 +93,9 @@ volatile doubleBufferArray_t *freeBufferCh1 = NULL;
 volatile doubleBufferArray_t *freeBufferCh4 = NULL;
 static doubleBufferArray_t doubleBuffer1;
 static doubleBufferArray_t doubleBuffer2;
+
+// Signals to notify the main task
+volatile uint32_t ISRNotificationValue = 0;
 
 /* USER CODE END PV */
 
@@ -112,7 +115,8 @@ void bootloaderJumpToApp(void);
 void vMainTask(void *pvParameters)
 {
   uint32_t ulNotificationValue = 0;
-  uint32_t lastCounter = 0;
+  volatile lastCounter = 0;
+  volatile preparingBufferReady = 0;
 
   // Prepare double buffer
   uint32_t pulseIncrementCh1 = COMPUTE_INCREMENT_FOR_PULSE(pulseFrequency, APB1_CLOCK);
@@ -121,7 +125,7 @@ void vMainTask(void *pvParameters)
   lastCounter = (*preparedBufferCh1)[DOUBLE_BUFFER_SIZE - 1];
 
   // add a signature in a pulse for debugging purpose
-  (*preparedBufferCh1)[2] += 0.8 * pulseIncrementCh1;
+  // (*preparedBufferCh1)[2] += 0.8 * pulseIncrementCh1;
 
   // assign array to preparingBuffer
   preparingBufferCh1 = &doubleBuffer2;
@@ -132,52 +136,53 @@ void vMainTask(void *pvParameters)
   // Reset TIM5 Counter
   __HAL_TIM_SET_COUNTER(&htim5, 0);
 
-  // xTaskNotifyWait(0, 0xFFFFFFFF, &ulNotificationValue, portMAX_DELAY);
-
   for (;;)
   {
     /* do something  */
-    // vLoggingPrintf("[0]Captured Value: %x\n", HAL_TIM_ReadCapturedValue(&htim5, TIM_CHANNEL_1));
-    vLoggingPrintf("[0]Timer Counter: %x\n", __HAL_TIM_GET_COUNTER(&htim5));
-    // prepare for next buffer
-    updateBuffer(preparingBufferCh1, 0, lastCounter + pulseIncrementCh1, pulseIncrementCh1, DOUBLE_BUFFER_SIZE);
-    // lastCounter = (*preparingBufferCh1)[DOUBLE_BUFFER_SIZE - 1];
+    // Set PD7 to low =====> this is the beginning of the preparation
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_RESET);
 
-    // add a signature in a pulse for debugging purpose
-    (*preparingBufferCh1)[2] += 0.8 * pulseIncrementCh1;
+    if (preparingBufferReady == 0)
+    {
+      // set PD7 to high
+      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_SET);
+
+      // vLoggingPrintf("[0]Timer Counter: %x\n", __HAL_TIM_GET_COUNTER(&htim5));
+      // prepare for next buffer
+      updateBuffer(preparingBufferCh1, 0, lastCounter + pulseIncrementCh1, pulseIncrementCh1, DOUBLE_BUFFER_SIZE);
+      // record last counter value
+      lastCounter = (*preparingBufferCh1)[DOUBLE_BUFFER_SIZE - 1];
+
+      // add a signature in a pulse for debugging purpose
+      // (*preparingBufferCh1)[2] += 0.8 * pulseIncrementCh1;
+
+      preparingBufferReady = 1;
+
+      // set PD7 to low =====> this is the end of the preparation
+      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_RESET);
+    }
 
     // Wait for the notification from the interrupt
-    xTaskNotifyWait(0, 0xFFFFFFFF, &ulNotificationValue, portMAX_DELAY);
-
-    // Check the notification value
-    if (ulNotificationValue & TASK_NOTIFY_TIM_CHANNEL_1)
+    // xTaskNotifyWait(0, 0xFFFFFFFF, &ulNotificationValue, portMAX_DELAY);
+    if ((ISRNotificationValue & TASK_NOTIFY_TIM_CHANNEL_1) != 0 && preparingBufferReady == 1)
     {
+      // set PD6 to high =====> this is the beginning of the notification
+      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);
+
+      // clear the notification
+      ISRNotificationValue &= ~TASK_NOTIFY_TIM_CHANNEL_1;
+
       // swap buffer
       doubleBufferArray_t *temp = preparedBufferCh1;
       preparedBufferCh1 = preparingBufferCh1;
       preparingBufferCh1 = temp;
-
-      // record captured value
-      lastCounter = HAL_TIM_ReadCapturedValue(&htim5, TIM_CHANNEL_1);
-
-      vLoggingPrintf("[1]Timer Counter: %x\n", __HAL_TIM_GET_COUNTER(&htim5));
-      vLoggingPrintf("Captured Value (entry): %x\n", HAL_TIM_ReadCapturedValue(&htim5, TIM_CHANNEL_1));
-      // Reset TIM5 Counter
-      // __HAL_TIM_SET_COUNTER(&htim5, 0);
-
-      // set capture compare value
-      // __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_1, 0);
-      // vLoggingPrintf("Captured Value after reset: %x\n", HAL_TIM_ReadCapturedValue(&htim5, TIM_CHANNEL_1));
+      preparingBufferReady = 0;
 
       // start DMA
       HAL_TIM_OC_Start_DMA(&htim5, TIM_CHANNEL_1, (uint32_t)preparedBufferCh1, DOUBLE_BUFFER_SIZE);
 
-      // Reset TIM5 Counter
-      // __HAL_TIM_SET_COUNTER(&htim5, 0);
-      // print timer counter value
-      vLoggingPrintf("Timer Counter: %x\n", __HAL_TIM_GET_COUNTER(&htim5));
-      // print captured value
-      vLoggingPrintf("Captured Value: %x\n", HAL_TIM_ReadCapturedValue(&htim5, TIM_CHANNEL_1));
+      // set PD6 to low =====> this is the end of the notification
+      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
     }
   }
 }
@@ -429,10 +434,10 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Stream1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
   /* DMA1_Stream2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 5, 0);
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
 }
 
@@ -542,6 +547,12 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* Configure GPIO pins : PD6 and PD7 as output */
+  GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
@@ -659,17 +670,14 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
   {
-    // stop DMA
-    // HAL_TIM_OC_Stop_DMA(htim, TIM_CHANNEL_1);
-
     // stop counter
     TIM_STOP_COUNTER(htim);
 
     // notify main task to update pulse data
-    xTaskNotifyFromISR(xHandleMainTask, TASK_NOTIFY_TIM_CHANNEL_1, eSetBits, NULL);
+    ISRNotificationValue |= TASK_NOTIFY_TIM_CHANNEL_1;
 
     // debug message, print captured value
-    vLoggingPrintf("[ISR]Timer Counter: %x\n", __HAL_TIM_GET_COUNTER(htim));
+    // vLoggingPrintf("[ISR]Timer Counter: %x\n", __HAL_TIM_GET_COUNTER(htim));
   }
 }
 
