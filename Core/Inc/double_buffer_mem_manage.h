@@ -4,7 +4,6 @@
 #include "main.h"
 
 #define LINKED_LIST_SIZE 5U
-#define DOUBLE_BUFFER_SIZE 31
 
 // A known value to initialize the double buffer
 #define DOUBLE_BUFFER_INIT_VALUE 0xf5f5f5f5UL

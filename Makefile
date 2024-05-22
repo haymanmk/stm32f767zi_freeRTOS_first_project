@@ -81,7 +81,8 @@ $(FREERTOS_PLUS_TCP_DIR)/portable/NetworkInterface/Common/phyHandling.c \
 $(FREERTOS_PLUS_TCP_DIR)/portable/BufferManagement/BufferAllocation_2.c \
 Core/Src/ethernet_if.c \
 Core/Src/stm32f7xx_timer_extension.c \
-Core/Src/double_buffer_mem_manage.c
+Core/Src/double_buffer_mem_manage.c \
+Core/Src/encoder.c \
 #ThirdParty/SEGGER/SystemView/SEGGER/syscalls/SEGGER_RTT_Syscalls_GCC.c \
 
 # ASM sources

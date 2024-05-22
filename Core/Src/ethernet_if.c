@@ -1,12 +1,13 @@
+#include <stdio.h>
 #include "main.h"
 #include "ethernet_if.h"
+#include "encoder.h"
 
 #define BUFFER_SIZE 512
 
 extern NetworkInterface_t *pxSTM32Fxx_FillInterfaceDescriptor(BaseType_t xEMACIndex,
                                                               NetworkInterface_t *pxInterface);
 static void prvCreateTCPServerSocketTasks(void *pvParameters);
-static void prvServerConnectionInstance(void *pvParameters);
 static void prvEchoClientRxTask(void *pvParameters);
 
 NetworkInterface_t xInterfaces[1];
@@ -137,7 +138,7 @@ void vApplicationIPNetworkEventHook_Multi(eIPCallbackEvent_t eNetworkEvent,
 
             xTasksAlreadyCreated = pdTRUE;
 
-            vStartSimpleTCPServerTasks(2 * configMINIMAL_STACK_SIZE, tskIDLE_PRIORITY + 1);
+            vStartSimpleTCPServerTasks(2 * configMINIMAL_STACK_SIZE, tskIDLE_PRIORITY);
         }
     }
     /* Print out the network configuration, which may have come from a DHCP
@@ -231,7 +232,7 @@ static void prvCreateTCPServerSocketTasks(void *pvParameters)
                     "EchoServer",
                     usUsedStackSize,
                     (void *)xConnectedSocket,
-                    tskIDLE_PRIORITY + 1,
+                    tskIDLE_PRIORITY,
                     NULL);
     }
 }
@@ -250,15 +251,12 @@ void prvProcessData(char *cRxedData, BaseType_t lBytesReceived, Socket_t xConnec
 {
     FreeRTOS_debug_printf(("Received data: %s\n", cRxedData));
 
-    // Echo back the received data
-    FreeRTOS_send(xConnectedSocket, cRxedData, lBytesReceived, 0);
-
     if (cRxedData[0] != '$')
         return;
 
     BaseType_t i = 1;
 
-    while (i < lBytesReceived)
+    for (i; i < lBytesReceived; i++)
     {
         switch (cRxedData[i])
         {
@@ -279,8 +277,17 @@ void prvProcessData(char *cRxedData, BaseType_t lBytesReceived, Socket_t xConnec
             xTaskNotifyGive(xHandleUpdatePulseData);
 
             break;
+        case 'p':
+        case 'P':
+        {
+            char str[12] = {NULL}; // Buffer big enough for 32-bit number. 10 digits max + '\0'
+            sprintf(str, "%ld", readDegree());
+            FreeRTOS_send(xConnectedSocket, str, sizeof(str), 0);
+            break;
+        }
         default:
-            i++;
+            // Echo back the received data
+            // FreeRTOS_send(xConnectedSocket, cRxedData, lBytesReceived, 0);
             break;
         }
     }

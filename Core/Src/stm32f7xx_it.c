@@ -41,6 +41,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
+extern TIM_HandleTypeDef htim7;
 
 /* USER CODE END PV */
 
@@ -204,5 +205,9 @@ void TIM6_DAC_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+void TIM7_IRQHandler(void)
+{
+  HAL_TIM_IRQHandler(&htim7);
+}
 
 /* USER CODE END 1 */
